@@ -1,4 +1,5 @@
 name: Build Packages
+
 on:
   push:
     branches: [main]
@@ -7,28 +8,44 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: archlinux/archlinux:latest
+    container:
+      image: archlinux/archlinux:latest
+      options: --privileged  # для некоторых пакетов может понадобиться
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - run: |
-        # Устанавливаем нужное
-        pacman -Syu --noconfirm base-devel
+      - name: Install base dependencies
+        run: |
+          pacman -Syu --noconfirm base-devel git sudo
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-        # Собираем пакеты
-        cd sources
-        for d in */; do
-          echo "Building $d"
-          cd "$d"
-          makepkg -s --noconfirm
-          cd ..
-        done
+      - name: Build packages
+        run: |
+          cd sources
+          for pkgdir in */; do
+            [ -f "$pkgdir/PKGBUILD" ] || continue
+            echo ">>> Building ${pkgdir%/}"
+            cd "$pkgdir"
+            sudo -u builder makepkg -sCf --noconfirm || {
+              echo "!!! FAILED: ${pkgdir%/}"
+              exit 1
+            }
+            cd ..
+          done
+        shell: bash
 
-        # Копируем в репозиторий
-        mkdir -p packages/QuasarLinux/x86_64
-        find sources -name "*.pkg.tar.*" -exec cp {} packages/QuasarLinux/x86_64/ \;
+      - name: Collect artifacts
+        run: |
+          mkdir -p packages/QuasarLinux/x86_64
+          find sources -name "*.pkg.tar.zst" -exec cp {} packages/QuasarLinux/x86_64/ \;
+          cd packages/QuasarLinux/x86_64
+          repo-add quasar.db.tar.gz *.pkg.tar.zst
 
-        # Создаем БД репозитория
-        cd packages/QuasarLinux/x86_64
-        repo-add quasar.db.tar.gz *.pkg.tar.* 2>/dev/null || exit 0
+      - name: Upload repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: quasar-repo-x86_64
+          path: packages/QuasarLinux/x86_64/
+          retention-days: 7
