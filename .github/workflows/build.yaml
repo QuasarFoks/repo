@@ -12,40 +12,33 @@ jobs:
       image: archlinux/archlinux:latest
       options: --privileged  # для некоторых пакетов может понадобиться
 
-    steps:
+        steps:
       - uses: actions/checkout@v4
+        with:
+          # Принудительно кладем код в корень рабочей директории
+          path: '.'
 
       - name: Install base dependencies
         run: |
           pacman -Syu --noconfirm base-devel git sudo
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          chown -R builder:builder $GITHUB_WORKSPACE || chown -R builder:builder sources
-          pwd
+          # Даем права builder-у на корень, где лежит код
+          chown -R builder:builder .
 
-        - name: Build packages
-        shell: bash
+      - name: Build packages
         run: |
-          # 1. Переходим в папку с пакетами (используем переменную для надежности)
-          cd "${{ github.workspace }}/sources"
-
-          # 2. Исправляем права (makepkg не работает от root)
-          # Нам нужно, чтобы пользователь builder владел всей папкой проекта
-          chown -R builder:builder "${{ github.workspace }}"
-
-          # 3. Цикл сборки
+          # Теперь sources ТОЧНО в корне
+          cd sources
           for pkgdir in */; do
-            # Убираем слеш в конце названия для красоты логов
-            dir=${pkgdir%/}
-
-            [ -f "$dir/PKGBUILD" ] || continue
-            echo ">>> BUILDING: $dir"
-
-            # Заходим, собираем от builder, выходим
-            pushd "$dir" > /dev/null
+            [ -f "$pkgdir/PKGBUILD" ] || continue
+            echo ">>> Building ${pkgdir%/}"
+            cd "$pkgdir"
+            # Собираем
             sudo -u builder makepkg -sCf --noconfirm
-            popd > /dev/null
+            cd ..
           done
+
 
       - name: Collect artifacts
         run: |
