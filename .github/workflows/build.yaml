@@ -23,21 +23,25 @@ jobs:
           chown -R builder:builder $GITHUB_WORKSPACE || chown -R builder:builder sources
           pwd
 
-      - name: Build packages
-        run: |
-          ls
-          cd $GITHUB_WORKSPACE
-          for pkgdir in */; do
-            [ -f "$pkgdir/PKGBUILD" ] || continue
-            echo ">>> Building ${pkgdir%/}"
-            cd "$pkgdir"
-            sudo -u builder makepkg -sCf --noconfirm || {
-              echo "!!! FAILED: ${pkgdir%/}"
-              exit 1
-            }
-            cd ..
-          done
-        shell: bash
+        - name: Build packages
+          run: |
+            # 1. Переходим в папку с исходниками (она в корне репо)
+            cd "$GITHUB_WORKSPACE/sources"
+
+            # 2. Даем права пользователю builder на всё дерево файлов
+            chown -R builder:builder "$GITHUB_WORKSPACE"
+
+            # 3. Запускаем сборку
+            for pkgdir in */; do
+                [ -f "$pkgdir/PKGBUILD" ] || continue
+                echo ">>> Building ${pkgdir%/}"
+
+                # Заходим в папку и собираем от имени builder
+                pushd "$pkgdir"
+                sudo -u builder makepkg -sCf --noconfirm
+                popd
+            done
+            shell: bash
 
       - name: Collect artifacts
         run: |
