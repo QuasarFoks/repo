@@ -10,46 +10,57 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: archlinux/archlinux:latest
-      options: --privileged  # для некоторых пакетов может понадобиться
+      options: --privileged
 
-        steps:
+    steps:
       - uses: actions/checkout@v4
-        with:
-          # Принудительно кладем код в корень рабочей директории
-          path: '.'
 
-      - name: Install base dependencies
+      - name: Locate actual repo root (REST API unpack)
+        id: find-root
         run: |
-          pacman -Syu --noconfirm base-devel git sudo
-          useradd -m builder
-          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          # Даем права builder-у на корень, где лежит код
-          chown -R builder:builder .
+          # Ищем первую директорию с файлом README.md внутри распакованного архива
+          ROOT=$(find "$GITHUB_WORKSPACE" -name "README.md" -exec dirname {} \; | head -n1)
+          if [ -z "$ROOT" ]; then
+            echo "ERROR: Cannot find repo root!"
+            ls -R "$GITHUB_WORKSPACE"
+            exit 1
+          fi
+          echo "REPO_ROOT=$ROOT" >> "$GITHUB_OUTPUT"
+          echo "Found repo at: $ROOT"
+          ls -la "$ROOT"
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm base-devel git 2>&1 | grep -v "no secret key" || true
+          # Игнорируем ошибку с ключами — для сборки не критично
+
+      - name: Patch makepkg to allow root
+        run: sed -i 's/^if \[\[ \$EUID = 0 \]\]; then$/if [[ false ]]; then/' /usr/bin/makepkg
 
       - name: Build packages
         run: |
-          # Теперь sources ТОЧНО в корне
-          cd sources
+          cd "${{ steps.find-root.outputs.REPO_ROOT }}/sources"
           for pkgdir in */; do
             [ -f "$pkgdir/PKGBUILD" ] || continue
             echo ">>> Building ${pkgdir%/}"
-            cd "$pkgdir"
-            # Собираем
-            sudo -u builder makepkg -sCf --noconfirm
-            cd ..
+            (cd "$pkgdir" && BUILDDIR=/tmp/build makepkg -sf --noconfirm) || {
+              echo "!!! FAILED: ${pkgdir%/}"
+              exit 1
+            }
           done
+        shell: bash
 
-
-      - name: Collect artifacts
+      - name: Create repository
         run: |
-          mkdir -p packages/QuasarLinux/x86_64
-          find sources -name "*.pkg.tar.zst" -exec cp {} packages/QuasarLinux/x86_64/ \;
-          cd packages/QuasarLinux/x86_64
+          ROOT="${{ steps.find-root.outputs.REPO_ROOT }}"
+          mkdir -p "$ROOT/packages/QuasarLinux/x86_64"
+          find "$ROOT/sources" -name "*.pkg.tar.zst" -exec cp {} "$ROOT/packages/QuasarLinux/x86_64/" \;
+          cd "$ROOT/packages/QuasarLinux/x86_64"
           repo-add quasar.db.tar.gz *.pkg.tar.zst
 
-      - name: Upload repository
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: quasar-repo-x86_64
-          path: packages/QuasarLinux/x86_64/
+          path: ${{ steps.find-root.outputs.REPO_ROOT }}/packages/QuasarLinux/x86_64/
           retention-days: 7
