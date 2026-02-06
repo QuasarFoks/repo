@@ -20,13 +20,13 @@ jobs:
           pacman -Syu --noconfirm base-devel git sudo
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          chown -R builder:builder /__w/repo/repo/sources || chown -R builder:builder sources
+          chown -R builder:builder $GITHUB_WORKSPACE || chown -R builder:builder sources
+          pwd
 
       - name: Build packages
         run: |
           ls
-
-          cd sources
+          cd $GITHUB_WORKSPACE
           for pkgdir in */; do
             [ -f "$pkgdir/PKGBUILD" ] || continue
             echo ">>> Building ${pkgdir%/}"
