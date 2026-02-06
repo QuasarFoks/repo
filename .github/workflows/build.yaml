@@ -14,21 +14,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: repo
 
       - name: Install dependencies
-        run: |
-          pacman -Syu --noconfirm base-devel git
+        run: pacman -Syu --noconfirm base-devel git
 
-      - name: Patch makepkg to allow root execution
+      - name: Patch makepkg to allow root
         run: |
-          # Убираем проверку $EUID == 0
           sed -i 's/^if \[\[ \$EUID = 0 \]\]; then$/if [[ false ]]; then/' /usr/bin/makepkg
 
       - name: Build packages as root
         run: |
-          cd /__w/repo/repo/sources
+          cd "$GITHUB_WORKSPACE/sources"
           for pkgdir in */; do
             [ -f "$pkgdir/PKGBUILD" ] || continue
             echo ">>> Building ${pkgdir%/}"
@@ -43,14 +39,14 @@ jobs:
 
       - name: Prepare repository
         run: |
-          mkdir -p /__w/repo/repo/packages/QuasarLinux/x86_64
-          find /__w/repo/repo/sources -name "*.pkg.tar.zst" -exec cp {} /__w/repo/repo/packages/QuasarLinux/x86_64/ \;
-          cd /__w/repo/repo/packages/QuasarLinux/x86_64
+          mkdir -p "$GITHUB_WORKSPACE/packages/QuasarLinux/x86_64"
+          find "$GITHUB_WORKSPACE/sources" -name "*.pkg.tar.zst" -exec cp {} "$GITHUB_WORKSPACE/packages/QuasarLinux/x86_64/" \;
+          cd "$GITHUB_WORKSPACE/packages/QuasarLinux/x86_64"
           repo-add quasar.db.tar.gz *.pkg.tar.zst
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: quasar-repo-x86_64
-          path: /__w/repo/repo/packages/QuasarLinux/x86_64/
+          path: ${{ github.workspace }}/packages/QuasarLinux/x86_64/
           retention-days: 7
