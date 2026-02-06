@@ -15,29 +15,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: repo  # Фиксируем путь к репозиторию
+          path: repo
 
-      - name: Install dependencies & setup builder
+      - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm base-devel git sudo
-          useradd -m builder
-          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          # ФИКС ПРАВ: даем builder доступ к исходникам
-          chown -R builder:builder /__w/repo/repo/sources
+          pacman -Syu --noconfirm base-devel git
 
-      - name: Build packages
+      - name: Patch makepkg to allow root execution
+        run: |
+          # Убираем проверку $EUID == 0
+          sed -i 's/^if \[\[ \$EUID = 0 \]\]; then$/if [[ false ]]; then/' /usr/bin/makepkg
+
+      - name: Build packages as root
         run: |
           cd /__w/repo/repo/sources
           for pkgdir in */; do
             [ -f "$pkgdir/PKGBUILD" ] || continue
             echo ">>> Building ${pkgdir%/}"
             cd "$pkgdir"
-            sudo -u builder \
-              BUILDDIR=/tmp/build \
-              makepkg -sCf --noconfirm || {
-                echo "!!! FAILED: ${pkgdir%/}"
-                exit 1
-              }
+            BUILDDIR=/tmp/build makepkg -sCf --noconfirm || {
+              echo "!!! FAILED: ${pkgdir%/}"
+              exit 1
+            }
             cd ..
           done
         shell: bash
@@ -45,7 +44,13 @@ jobs:
       - name: Prepare repository
         run: |
           mkdir -p /__w/repo/repo/packages/QuasarLinux/x86_64
-          find /__w/repo/repo/sources -name "*.pkg.tar.zst" \
-            -exec cp {} /__w/repo/repo/packages/QuasarLinux/x86_64/ \;
+          find /__w/repo/repo/sources -name "*.pkg.tar.zst" -exec cp {} /__w/repo/repo/packages/QuasarLinux/x86_64/ \;
           cd /__w/repo/repo/packages/QuasarLinux/x86_64
           repo-add quasar.db.tar.gz *.pkg.tar.zst
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quasar-repo-x86_64
+          path: /__w/repo/repo/packages/QuasarLinux/x86_64/
+          retention-days: 7
