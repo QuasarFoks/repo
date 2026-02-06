@@ -1,0 +1,49 @@
+name: 🔧 Build Quasar Packages
+on:
+  push:
+    paths: ['sources/**']
+  schedule:
+    - cron: '0 0 1 * *'  # 1-го числа каждого месяца
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+    - name: 📥 Checkout
+      uses: actions/checkout@v4
+
+    - name: 🏗️ Setup Arch
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm base-devel git
+        useradd -m -G wheel -s /bin/bash builder
+        echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+    - name: 🔨 Build all packages
+      run: |
+        mkdir -p packages/QuasarLinux/x86_64
+
+        cd sources
+        for pkg in */; do
+          cd "$pkg" && echo "📦 Building: $pkg"
+          sudo -u builder makepkg -s --noconfirm --needed --clean
+          cp *.pkg.tar.* ../../packages/QuasarLinux/x86_64/ 2>/dev/null || true
+          cd ..
+        done
+
+    - name: 📦 Create repo
+      run: |
+        cd packages/QuasarLinux/x86_64
+        repo-add quasar.db.tar.gz *.pkg.tar.* 2>/dev/null || touch empty
+        echo "✅ Done: $(ls *.pkg.tar.* 2>/dev/null | wc -l) packages"
+
+    - name: 🚀 Push updates
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add packages/
+        git commit -m "📦 Monthly rebuild: $(date +%Y-%m-%d)" || echo "No changes"
+        git push
