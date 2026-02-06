@@ -24,24 +24,28 @@ jobs:
           pwd
 
         - name: Build packages
-          run: |
-            # 1. Переходим в папку с исходниками (она в корне репо)
-            cd "$GITHUB_WORKSPACE/sources"
+        shell: bash
+        run: |
+          # 1. Переходим в папку с пакетами (используем переменную для надежности)
+          cd "${{ github.workspace }}/sources"
 
-            # 2. Даем права пользователю builder на всё дерево файлов
-            chown -R builder:builder "$GITHUB_WORKSPACE"
+          # 2. Исправляем права (makepkg не работает от root)
+          # Нам нужно, чтобы пользователь builder владел всей папкой проекта
+          chown -R builder:builder "${{ github.workspace }}"
 
-            # 3. Запускаем сборку
-            for pkgdir in */; do
-                [ -f "$pkgdir/PKGBUILD" ] || continue
-                echo ">>> Building ${pkgdir%/}"
+          # 3. Цикл сборки
+          for pkgdir in */; do
+            # Убираем слеш в конце названия для красоты логов
+            dir=${pkgdir%/}
 
-                # Заходим в папку и собираем от имени builder
-                pushd "$pkgdir"
-                sudo -u builder makepkg -sCf --noconfirm
-                popd
-            done
-            shell: bash
+            [ -f "$dir/PKGBUILD" ] || continue
+            echo ">>> BUILDING: $dir"
+
+            # Заходим, собираем от builder, выходим
+            pushd "$dir" > /dev/null
+            sudo -u builder makepkg -sCf --noconfirm
+            popd > /dev/null
+          done
 
       - name: Collect artifacts
         run: |
