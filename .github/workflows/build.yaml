@@ -24,6 +24,8 @@ jobs:
 
       - name: Build packages
         run: |
+          ls
+
           cd sources
           for pkgdir in */; do
             [ -f "$pkgdir/PKGBUILD" ] || continue
